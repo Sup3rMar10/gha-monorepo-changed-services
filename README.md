@@ -18,6 +18,7 @@ changes (git diff -> matrix JSON) -> test (matrix, only changed services) -> gat
 
 - **First push** (no earlier commit to compare with): tested **both** services, then the gate passed.
 - **A change inside `services/b` only:** `changes`, `test (b)` and `gate` ran; **`test (a)` did not run**.
+- **A README-only change:** `changes` and `gate` ran, **`test` was skipped** (no services to test), and the gate still passed, so a docs edit costs seconds.
 - The detector has 5 unit tests (single service, two services, shared means all, docs mean none, unknown service ignored), run in CI before it is used.
 
 ## Decisions
