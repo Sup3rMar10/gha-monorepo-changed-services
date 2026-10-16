@@ -1,0 +1,61 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+      any: ${{ steps.detect.outputs.any }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0                 # the diff needs the base commit
+          persist-credentials: false
+      - name: Unit-test the change detector
+        run: python3 -m unittest discover -s tests
+      - id: detect
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          matrix=$(python3 scripts/changed.py "$BASE" "$HEAD_SHA")
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          if [ "$matrix" = '{"service": []}' ]; then echo "any=false" >> "$GITHUB_OUTPUT"; else echo "any=true" >> "$GITHUB_OUTPUT"; fi
+          echo "services to test: $matrix" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  test:
+    needs: changes
+    if: needs.changes.outputs.any == 'true'      # an empty matrix would make the job fail
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Test ${{ matrix.service }}
+        working-directory: services/${{ matrix.service }}
+        run: python3 -m unittest discover -v
+
+  # One stable check to require in branch protection. Matrix job names change with the
+  # matrix and a skipped job is not "failed", so require this job instead.
+  gate:
+    if: always()
+    needs: [changes, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if anything needed failed or was cancelled
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "results: $RESULTS"
+          if echo "$RESULTS" | grep -Eq 'failure|cancelled'; then exit 1; fi
